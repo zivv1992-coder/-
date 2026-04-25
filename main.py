@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 import click
+from tqdm import tqdm
+
 from bookvoice.extractor import extract
 from bookvoice.chunker import chunk_text
+from bookvoice.synthesizer import synthesize_chunks, get_tmp_dir
+from bookvoice.merger import merge_mp3s, cleanup_tmp_dir
 
 VOICE_DEFAULTS = {
     "en": "en-US-GuyNeural",
@@ -24,7 +28,9 @@ VOICE_OPTIONS = {
               help="Book language.")
 @click.option("--voice", "-v", default=None,
               help="Voice name override. Defaults by language.")
-def main(input_path, output_path, language, voice):
+@click.option("--chunk-size", default=8000, show_default=True,
+              help="Max characters per audio chunk.")
+def main(input_path, output_path, language, voice, chunk_size):
     """BookVoice: convert a PDF or EPUB book into an MP3 audiobook."""
     if voice is None:
         voice = VOICE_DEFAULTS[language]
@@ -39,13 +45,21 @@ def main(input_path, output_path, language, voice):
     click.echo(f"Reading: {input_path}")
     text = extract(input_path)
 
-    chunks = chunk_text(text)
+    chunks = chunk_text(text, max_size=chunk_size)
     click.echo(f"Extracted {len(text):,} characters → {len(chunks)} chunks.")
     click.echo(f"Voice: {voice}")
-    click.echo("\n--- Text preview (first 500 chars) ---")
-    click.echo(text[:500])
-    click.echo("--------------------------------------")
-    click.echo("\nSynthesis not yet wired up. Next step: edge-tts integration.")
+
+    tmp_dir = get_tmp_dir()
+    try:
+        with tqdm(total=len(chunks), desc="Synthesizing", unit="chunk") as bar:
+            chunk_paths = synthesize_chunks(chunks, voice, tmp_dir, progress_bar=bar)
+
+        click.echo(f"Merging {len(chunk_paths)} audio chunks...")
+        merge_mp3s(chunk_paths, output_path)
+    finally:
+        cleanup_tmp_dir(tmp_dir)
+
+    click.echo(f"Done! Audiobook saved to: {output_path}")
 
 
 if __name__ == "__main__":

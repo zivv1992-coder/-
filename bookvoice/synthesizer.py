@@ -1,8 +1,18 @@
 import asyncio
 import os
+import ssl
 import tempfile
 
 import edge_tts
+import edge_tts.communicate as _et_comm
+
+# edge-tts uses a module-level SSL context (_SSL_CTX) passed directly to ws_connect.
+# Replace it with an unverified context so environments with self-signed proxy
+# certificates don't block the connection.
+_unverified_ctx = ssl.create_default_context()
+_unverified_ctx.check_hostname = False
+_unverified_ctx.verify_mode = ssl.CERT_NONE
+_et_comm._SSL_CTX = _unverified_ctx
 
 
 async def synthesize_chunk(text: str, voice: str, output_path: str) -> None:
